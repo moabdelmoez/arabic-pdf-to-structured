@@ -6,6 +6,7 @@ PDF extractors often output Arabic text in visual (reversed) order. This app fix
 <p align="center">
 <img width="559" height="679" alt="Screenshot 2026-04-14 at 11 51 35 AM" src="https://github.com/user-attachments/assets/025ced1c-8549-4d0b-ae43-ea9477bc4115" />
 </p>
+
 ## Features
 
 - **Fast mode** — local CPU processing for digital PDFs
