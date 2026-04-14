@@ -4,6 +4,9 @@ A Streamlit web app that converts PDF documents — especially Arabic and RTL co
 
 PDF extractors often output Arabic text in visual (reversed) order. This app fixes that automatically, producing correctly ordered logical text suitable for LLMs, RAG pipelines, and downstream NLP tasks.
 
+
+
+
 ## Features
 
 - **Fast mode** — local CPU processing for digital PDFs
