@@ -17,6 +17,10 @@ uv run streamlit run app.py
 
 # Run the app headless (no browser auto-open)
 uv run streamlit run app.py --server.headless true
+
+# Start the hybrid backend (required for Hybrid mode)
+# Wait for "Application startup complete" before converting
+uv run opendataloader-pdf-hybrid --port 5002
 ```
 
 **Always use `uv` (not pip) for package management and running Python.**
@@ -30,11 +34,13 @@ The app is a single Streamlit file (`app.py`) with three concerns:
 2. **RTL HTML rendering** (`RTL_HTML_TEMPLATE`) — Arabic content is rendered via `st.components.v1.html()` in a full HTML document with `dir="rtl"`, `unicode-bidi: embed`, and Arabic fonts. Do not use `st.markdown()` for Arabic text — it breaks ligatures and bidi.
 
 3. **Conversion pipeline** — Uploads are saved to a temp directory, passed to `opendataloader_pdf.convert()`, and output files are read back for preview/download. Supports two modes:
-   - **Fast**: local CPU, digital PDFs
-   - **Hybrid**: AI-enhanced with OCR (pass `hybrid="docling-fast"` and `ocr_lang`)
+   - **Fast**: local CPU, digital PDFs. Text is extracted in visual order — `fix_arabic_visual_order` is applied to correct it.
+   - **Hybrid**: AI-enhanced with OCR (pass `hybrid="docling-fast"`). Requires the hybrid backend running on port 5002. Text is already in logical order — do NOT apply `fix_arabic_visual_order`.
 
 ## Key Constraints
 
 - Arabic RTL content must go through `st.components.v1.html()`, never `st.markdown()` with `unsafe_allow_html`
-- The `fix_arabic_visual_order` function must re-reverse embedded numbers and Latin text after reversing the full line
+- The `fix_arabic_visual_order` function must re-reverse embedded numbers and Latin text after reversing the full line. For markdown tables, each cell is reversed individually to preserve table structure.
+- `fix_arabic_visual_order` must only be applied in Fast mode — Hybrid mode already outputs correct logical order
+- The Java CLI cannot handle non-ASCII file paths — uploaded files are saved as `input.pdf` in the temp directory
 - Output formats: markdown, json, html, text, annotated pdf

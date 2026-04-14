@@ -23,6 +23,24 @@ def _has_arabic(text):
     return any(_is_arabic_char(ch) for ch in text)
 
 
+def _reverse_arabic_segment(segment):
+    """Reverse a text segment while preserving LTR runs (numbers, Latin)."""
+    reversed_seg = segment[::-1]
+    # Re-reverse number sequences so they read LTR
+    reversed_seg = re.sub(
+        r'[0-9][0-9.,:\-/٫٬]*[0-9]|[0-9]',
+        lambda m: m.group(0)[::-1],
+        reversed_seg,
+    )
+    # Re-reverse Latin words so they read LTR
+    reversed_seg = re.sub(
+        r'[A-Za-z]+(?:\s+[A-Za-z]+)*',
+        lambda m: m.group(0)[::-1],
+        reversed_seg,
+    )
+    return reversed_seg
+
+
 def fix_arabic_visual_order(text):
     """Convert Arabic text from visual order (reversed) to logical order.
 
@@ -30,6 +48,9 @@ def fix_arabic_visual_order(text):
     left-to-right as on screen, but Unicode/HTML RTL rendering expects
     logical order. This reverses each line so the browser can display
     it correctly with dir=rtl.
+
+    For markdown table rows, each cell is reversed individually to
+    preserve the table structure.
     """
     lines = text.split("\n")
     fixed_lines = []
@@ -37,27 +58,21 @@ def fix_arabic_visual_order(text):
         if not _has_arabic(line):
             fixed_lines.append(line)
             continue
-        # Reverse the entire line character by character
-        reversed_line = line[::-1]
-        # Re-reverse number sequences and Latin words so they read LTR
-        # Matches runs of digits (with optional punctuation like . , :) and Latin words
-        reversed_line = re.sub(
-            r'[0-9][0-9.,:\-/٫٬]*[0-9]|[0-9]',
-            lambda m: m.group(0)[::-1],
-            reversed_line,
-        )
-        reversed_line = re.sub(
-            r'[A-Za-z]+(?:\s+[A-Za-z]+)*',
-            lambda m: m.group(0)[::-1],
-            reversed_line,
-        )
-        # Re-reverse markdown markers that got flipped
-        reversed_line = re.sub(
-            r'\|',
-            '|',
-            reversed_line,
-        )
-        fixed_lines.append(reversed_line)
+
+        stripped = line.strip()
+        # Handle markdown table rows: reverse each cell individually
+        if stripped.startswith("|") and stripped.endswith("|"):
+            cells = line.split("|")
+            # cells[0] is empty (before first |), cells[-1] is empty (after last |)
+            fixed_cells = []
+            for cell in cells:
+                if cell.strip() and _has_arabic(cell):
+                    fixed_cells.append(_reverse_arabic_segment(cell))
+                else:
+                    fixed_cells.append(cell)
+            fixed_lines.append("|".join(fixed_cells))
+        else:
+            fixed_lines.append(_reverse_arabic_segment(line))
     return "\n".join(fixed_lines)
 
 RTL_HTML_TEMPLATE = """
@@ -128,10 +143,8 @@ with st.sidebar:
 
     mode = st.radio("Processing Mode", ["Fast", "Hybrid"], index=0)
 
-    ocr_languages = None
     if mode == "Hybrid":
         st.info("Hybrid mode uses AI for OCR, formulas, and chart descriptions.")
-        ocr_languages = st.text_input("OCR Languages", value="ar,en", help="Comma-separated language codes (e.g. ar,en)")
 
     rtl_mode = st.checkbox("RTL Display (Arabic/Hebrew)", value=True)
 
@@ -143,7 +156,9 @@ if convert_btn and uploaded_file is not None:
         try:
             with tempfile.TemporaryDirectory() as tmp_dir:
                 # Save uploaded file
-                input_path = os.path.join(tmp_dir, uploaded_file.name)
+                # Use ASCII-safe filename — Java CLI can't handle non-ASCII paths
+                safe_name = "input.pdf"
+                input_path = os.path.join(tmp_dir, safe_name)
                 with open(input_path, "wb") as f:
                     f.write(uploaded_file.getbuffer())
 
@@ -159,8 +174,6 @@ if convert_btn and uploaded_file is not None:
 
                 if mode == "Hybrid":
                     convert_kwargs["hybrid"] = "docling-fast"
-                    if ocr_languages:
-                        convert_kwargs["ocr_lang"] = ocr_languages
 
                 # Run conversion
                 opendataloader_pdf.convert(**convert_kwargs)
@@ -174,13 +187,35 @@ if convert_btn and uploaded_file is not None:
                 if not output_files:
                     st.error("No output files were generated. The PDF may be empty or unsupported.")
                 else:
-                    for out_file in output_files:
+                    # Map output format to expected file extensions
+                    format_extensions = {
+                        "markdown": {".md"},
+                        "json": {".json"},
+                        "html": {".html", ".htm"},
+                        "text": {".txt"},
+                        "pdf": {".pdf"},
+                    }
+                    expected_exts = format_extensions.get(output_format, set())
+
+                    # Filter to only files matching the requested format
+                    matched_files = [
+                        f for f in output_files
+                        if os.path.splitext(f)[1].lower() in expected_exts
+                    ]
+
+                    if not matched_files:
+                        st.error("No output files matched the requested format.")
+                    for out_file in matched_files:
                         st.success(f"Converted: {os.path.basename(out_file)}")
+
+                        # Only fix visual order for Fast mode — Hybrid already outputs logical order
+                        needs_visual_fix = rtl_mode and mode == "Fast"
 
                         if output_format == "markdown":
                             content = open(out_file, "r", encoding="utf-8").read()
-                            if rtl_mode:
+                            if needs_visual_fix:
                                 content = fix_arabic_visual_order(content)
+                            if rtl_mode:
                                 import markdown as _md
                                 html_body = _md.markdown(content, extensions=["tables", "fenced_code"])
                                 rtl_html = RTL_HTML_TEMPLATE.format(content=html_body)
@@ -191,7 +226,7 @@ if convert_btn and uploaded_file is not None:
 
                         elif output_format == "json":
                             content = open(out_file, "r", encoding="utf-8").read()
-                            if rtl_mode:
+                            if needs_visual_fix:
                                 content = fix_arabic_visual_order(content)
                             try:
                                 parsed = json.loads(content)
@@ -207,8 +242,9 @@ if convert_btn and uploaded_file is not None:
 
                         elif output_format == "text":
                             content = open(out_file, "r", encoding="utf-8").read()
-                            if rtl_mode:
+                            if needs_visual_fix:
                                 content = fix_arabic_visual_order(content)
+                            if rtl_mode:
                                 import html as _html
                                 escaped = _html.escape(content)
                                 rtl_html = RTL_HTML_TEMPLATE.format(content=f"<pre>{escaped}</pre>")

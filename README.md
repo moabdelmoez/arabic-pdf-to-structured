@@ -37,11 +37,23 @@ This opens the app in your browser. From there:
 2. Choose an output format (markdown, json, html, text, or annotated pdf)
 3. Select a processing mode:
    - **Fast** — for digital PDFs, runs locally on CPU
-   - **Hybrid** — for scanned or complex PDFs, uses AI-enhanced OCR (configure OCR languages, default: `ar,en`)
+   - **Hybrid** — for scanned or complex PDFs, uses AI-enhanced OCR (requires the hybrid backend — see below)
 4. Toggle **RTL display** for Arabic content (enabled by default)
 5. Click **Convert** and preview or download the result
 
-To run headless (e.g., on a server without a browser):
+### Hybrid Mode Setup
+
+Hybrid mode requires a running backend server. Start it in a **separate terminal** before converting:
+
+```bash
+uv run opendataloader-pdf-hybrid --port 5002
+```
+
+Wait for `Application startup complete` to appear (first run may take a while to download models), then use Hybrid mode in the app.
+
+### Headless Mode
+
+To run without auto-opening a browser (e.g., on a server):
 
 ```bash
 uv run streamlit run app.py --server.headless true
